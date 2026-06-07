@@ -1,0 +1,115 @@
+name: fetch-aws-config
+
+# Capture AWS Config rule-evaluation results as HDF evidence for the ATO package
+# (aws-config#1). RETRIEVAL lives here; sparc-validate only INCLUDES the published
+# HDF (sparc-validate#194) — it does not re-fetch.
+#
+# Method today: SAF CLI `aws_config2hdf` — baked into risksentinel/sparc-auditor,
+# emits standard HDF (`profiles[].controls[]`) that the downstream failure-export /
+# OSCAL pipeline already ingests.
+#
+# Long-term primary: the hdf CLI `fetch aws-config` (richer target attribution +
+# failed-result enrichment). The `hdf` Go binary is NOT yet in the sparc-auditor
+# image — tracked in container-build-sign (see README). The hdf-CLI step is stubbed
+# below; promote it to primary once the binary ships in a pinned image.
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # nightly ~03:00 ET — aligns with the sparc-validate matrix
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC for configure-aws-credentials
+  contents: read
+
+jobs:
+  fetch:
+    name: AWS Config -> HDF (SAF)
+    runs-on: ubuntu-latest
+    # Run inside the pinned, cosign-signed scanner image (carries the SAF CLI).
+    # Authenticated pull via the org DOCKERHUB_* secrets — anonymous Docker Hub
+    # pulls from shared runner IPs flake on the rate limit (sparc-validate#192/#193).
+    container:
+      image: risksentinel/sparc-auditor:v0.1.4
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-east-1]   # add deployment regions here for multi-region capture
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS credentials via OIDC
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: aws-config-fetch-${{ github.run_id }}-${{ matrix.region }}
+          aws-region: ${{ matrix.region }}
+
+      - name: SAF convert aws_config2hdf
+        shell: bash
+        env:
+          ACCOUNT: ${{ steps.creds.outputs.aws-account-id }}
+          REGION: ${{ matrix.region }}
+        run: |
+          # Provenance in the filename: <account>-<region> (the action surfaces the
+          # account id; the SAF SDK reads the OIDC creds from the AWS_* env vars —
+          # no aws CLI binary needed in the image).
+          art="aws-config-${ACCOUNT}-${REGION}.hdf.json"
+          saf convert aws_config2hdf -r "${REGION}" -o "${art}"
+
+          [ -s "${art}" ] || { echo "::error::no HDF produced (${art}) — is AWS Config recording + does the role have config:* read?"; exit 1; }
+          # Guard: at least one result-bearing control, else Config returned nothing.
+          n=$(jq '[.profiles[].controls[]? | select((.results // []) | length > 0)] | length' "${art}" 2>/dev/null || echo 0)
+          [ "${n}" != "0" ] || { echo "::error::HDF ${art} has zero result-bearing controls — AWS Config not recording or no rules evaluated."; exit 1; }
+          echo "aws_config2hdf -> ${art} (account=${ACCOUNT} region=${REGION}, ${n} result-bearing controls)"
+
+      # --- hdf CLI (LONG-TERM PRIMARY) — pending the `hdf` binary in the image ---
+      # Richer target attribution + failed-result enrichment. Promote to primary once
+      # the mitre/hdf-libs `hdf` binary is baked into a pinned sparc-auditor image:
+      # - name: hdf fetch aws-config
+      #   run: |
+      #     art="aws-config-${{ steps.creds.outputs.aws-account-id }}-${{ matrix.region }}.hdf.json"
+      #     hdf fetch aws-config --region "${{ matrix.region }}" -o "${art}"
+      #     hdf list targets "${art}"   # verify target (account/region) captured
+      #     hdf info "${art}"
+
+      - name: Upload HDF artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: aws-config-${{ matrix.region }}
+          path: aws-config-*-${{ matrix.region }}.hdf.json
+          retention-days: 90
+
+  publish:
+    name: publish rolling 'latest' release (stable URL for the include)
+    needs: fetch
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest   # NOT the scanner image — it has no `gh`
+    permissions:
+      contents: write   # create/update the release
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download HDF artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: hdf/
+
+      - name: Update the 'latest' release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(find hdf/ -name 'aws-config-*.hdf.json' | sort)
+          [ -n "${files}" ] || { echo "::error::no HDF artifacts to publish"; exit 1; }
+          # Rolling 'latest' release = a stable URL sparc-validate#194 can
+          # `gh release download latest` from; assets are replaced each run.
+          gh release view latest >/dev/null 2>&1 \
+            || gh release create latest \
+                 --title "Latest AWS Config evidence (HDF)" \
+                 --notes "Rolling-latest AWS Config rule-evaluation results in HDF, refreshed each run. Consumed by sparc-validate#194."
+          gh release upload latest ${files} --clobber
+          echo "Published $(echo "${files}" | wc -l | tr -d ' ') HDF asset(s) to the 'latest' release."
