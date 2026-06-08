@@ -1,0 +1,125 @@
+name: fetch-aws-config
+
+# REUSABLE workflow (aws-config#1). Captures AWS Config rule-evaluation results as HDF
+# evidence and stamps the workload/target into the HDF passthrough.
+#
+# This repo holds the workflow + variables but NO AWS role / credentials of its own.
+# The CALLER (sparc-validate) invokes it via `uses:` and passes its scanner-role ARN +
+# the org DOCKERHUB secrets. Because it's a reusable workflow, the OIDC token is minted
+# as the caller (repo:risk-sentinel/sparc-validate:*), so the existing scanner-role trust
+# matches — no new role, no aws-config trust. See README + sparc-validate#194.
+
+on:
+  workflow_call:
+    inputs:
+      regions:
+        description: 'JSON array of AWS regions to capture, e.g. ["us-east-1"]'
+        type: string
+        default: '["us-east-1"]'
+      output_prefix:
+        description: 'Artifact filename prefix'
+        type: string
+        default: aws-config
+      workload_name:
+        description: 'Workload identity stamped into the HDF passthrough'
+        type: string
+        default: sparc-aws-config
+    secrets:
+      AWS_ROLE_ARN:
+        description: 'Caller role to assume (e.g. the sparc-validate scanner role) — needs AWS Config read + sts:GetCallerIdentity'
+        required: true
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  id-token: write   # OIDC (token minted as the caller repo)
+  contents: read
+
+jobs:
+  fetch:
+    name: AWS Config -> HDF
+    runs-on: ubuntu-latest
+    container:
+      image: risksentinel/sparc-auditor:v0.1.5
+      credentials:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        region: ${{ fromJSON(inputs.regions) }}
+    steps:
+      - name: Configure AWS credentials via OIDC (caller's role)
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: aws-config-fetch-${{ github.run_id }}-${{ matrix.region }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Build passthrough (workload + target identity)
+        id: pass
+        shell: bash
+        env:
+          ACCOUNT: ${{ steps.creds.outputs.aws-account-id }}
+          REGION: ${{ matrix.region }}
+          WORKLOAD: ${{ inputs.workload_name }}
+        run: |
+          # Stamped into each HDF's passthrough so the evidence self-identifies the
+          # workload + AWS account/region it was collected from.
+          cat > passthrough-${REGION}.json <<JSON
+          {
+            "workload": "${WORKLOAD}",
+            "source": "aws-config",
+            "target": {
+              "name": "aws-account-${ACCOUNT}",
+              "type": "aws_account",
+              "account_id": "${ACCOUNT}",
+              "region": "${REGION}"
+            },
+            "collected_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "github_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          JSON
+          echo "account=${ACCOUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: hdf fetch aws-config (primary — target + enrichment)
+        shell: bash
+        env:
+          REGION: ${{ matrix.region }}
+          ACCOUNT: ${{ steps.creds.outputs.aws-account-id }}
+        run: |
+          art="${{ inputs.output_prefix }}-${ACCOUNT}-${REGION}.hdf.json"
+          hdf fetch aws-config --region "${REGION}" -o "${art}"
+          [ -s "${art}" ] || { echo "::error::no HDF produced (${art}) — Config recording + role config:* read?"; exit 1; }
+          # Stamp the workload/target into the passthrough, then validate.
+          saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
+          hdf validate "${art}"
+          hdf list "${art}"
+          echo "hdf -> ${art}"
+
+      - name: saf aws_config2hdf (cross-check)
+        shell: bash
+        env:
+          REGION: ${{ matrix.region }}
+          ACCOUNT: ${{ steps.creds.outputs.aws-account-id }}
+        run: |
+          art="${{ inputs.output_prefix }}-${ACCOUNT}-${REGION}.saf.hdf.json"
+          saf convert aws_config2hdf -r "${REGION}" -o "${art}"
+          [ -s "${art}" ] || { echo "::error::no SAF HDF produced (${art})."; exit 1; }
+          saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
+          hdf validate "${art}" || echo "::warning::SAF output failed hdf validate (schema drift) — review."
+          echo "saf -> ${art}"
+
+      # The uploaded artifact IS "our output": the caller (sparc-validate) collects it
+      # and its aggregate-failures step feeds the sparc-iac OSCAL/ATO pipeline, which
+      # already ingests sparc-validate artifacts. (S3 archival, if ever wanted, is a
+      # separate ubuntu-latest publish job — the scanner image has no aws CLI.)
+      - name: Upload HDF artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.output_prefix }}-${{ matrix.region }}
+          path: ${{ inputs.output_prefix }}-*-${{ matrix.region }}*.hdf.json
+          retention-days: 90
