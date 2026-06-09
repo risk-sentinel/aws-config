@@ -91,14 +91,22 @@ jobs:
           REGION: ${{ matrix.region }}
           ACCOUNT: ${{ steps.creds.outputs.aws-account-id }}
         run: |
+          raw="${{ inputs.output_prefix }}-${ACCOUNT}-${REGION}.raw.json"
           art="${{ inputs.output_prefix }}-${ACCOUNT}-${REGION}.hdf.json"
-          hdf fetch aws-config --region "${REGION}" -o "${art}"
-          [ -s "${art}" ] || { echo "::error::no HDF produced (${art}) — Config recording + role config:* read?"; exit 1; }
-          # Stamp the workload/target into the passthrough, then validate.
+          hdf fetch aws-config --region "${REGION}" -o "${raw}"
+          [ -s "${raw}" ] || { echo "::error::no HDF produced (${raw}) — Config recording + role config:* read?"; exit 1; }
+          # Normalize the hdf-cli schema (baselines[]/requirements[]) down to the legacy
+          # profiles[].controls[] HDF that the downstream failure_export / hdf_to_oscal.py
+          # pipeline already consumes — so no custom shape-handling is needed (sparc-validate#194).
+          # The .raw.json keeps the richer hdf-cli evidence (not uploaded; the .hdf.json is the
+          # pipeline artifact). Going fully hdf-cli-native for OSCAL across all repos is the
+          # broader migration (sparc-validate#198).
+          hdf convert "${raw}" --to hdf@1 -o "${art}"
+          # Stamp the workload/target into the passthrough of the pipeline artifact.
           saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
-          hdf validate "${art}"
+          hdf validate "${art}" --type results || hdf validate "${art}"
           hdf list "${art}"
-          echo "hdf -> ${art}"
+          echo "hdf fetch + normalize (--to hdf@1) -> ${art}"
 
       - name: saf aws_config2hdf (cross-check)
         shell: bash

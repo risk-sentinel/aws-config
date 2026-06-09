@@ -34,7 +34,9 @@ jobs:
 
 ## Output
 
-Per-region artifacts `aws-config-<account>-<region>.hdf.json` (+ `.saf.hdf.json`). The **artifact is the output**: the caller's `aggregate-failures` step collects it and feeds the **sparc-iac OSCAL/ATO pipeline** (which already ingests sparc-validate artifacts). No S3 upload here (the scanner image has no `aws` CLI; S3 archival, if wanted, is a separate publish job).
+Per-region artifact **`aws-config-<account>-<region>.hdf.json`** — the hdf-cli fetch output **normalized to the legacy `profiles[].controls[]` HDF schema** via `hdf convert --to hdf@1`, so it drops straight into the existing `failure_export` / `hdf_to_oscal.py` pipeline with **no custom shape-handling** (sparc-validate#194). Plus the SAF cross-check `.saf.hdf.json` (already that schema). The richer hdf-cli `baselines[]/requirements[]` form is kept locally as `.raw.json` (not uploaded) pending the fully-native-OSCAL migration (sparc-validate#198).
+
+The **artifact is the output**: the caller's `aggregate-failures` step collects it and feeds the **sparc-iac OSCAL/ATO pipeline** (which already ingests sparc-validate artifacts). No S3 upload here (the scanner image has no `aws` CLI).
 
 ## Variables (`workflow_call` inputs)
 
