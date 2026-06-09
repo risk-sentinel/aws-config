@@ -95,18 +95,23 @@ jobs:
           art="${{ inputs.output_prefix }}-${ACCOUNT}-${REGION}.hdf.json"
           hdf fetch aws-config --region "${REGION}" -o "${raw}"
           [ -s "${raw}" ] || { echo "::error::no HDF produced (${raw}) — Config recording + role config:* read?"; exit 1; }
+          # Validate the NATIVE fetch output (the hdf CLI validates its own new schema).
+          # Informational — don't fail the job on a validate quirk.
+          hdf validate "${raw}" || echo "::warning::hdf validate on the native fetch output reported issues"
           # Normalize the hdf-cli schema (baselines[]/requirements[]) down to the legacy
           # profiles[].controls[] HDF that the downstream failure_export / hdf_to_oscal.py
-          # pipeline already consumes — so no custom shape-handling is needed (sparc-validate#194).
+          # pipeline already consumes — no custom shape-handling needed (sparc-validate#194).
           # The .raw.json keeps the richer hdf-cli evidence (not uploaded; the .hdf.json is the
-          # pipeline artifact). Going fully hdf-cli-native for OSCAL across all repos is the
-          # broader migration (sparc-validate#198).
+          # pipeline artifact). Going fully hdf-cli-native for OSCAL is the migration (sparc-validate#198).
+          #
+          # Do NOT `hdf validate` the downgraded output — the hdf CLI validates only its OWN
+          # (new) schema and rejects its own --to hdf@1 legacy form ("baselines is required").
+          # The correct check is that the pipeline shape (profiles[].controls[]) is present.
           hdf convert "${raw}" --to hdf@1 -o "${art}"
+          [ -s "${art}" ] || { echo "::error::normalize (--to hdf@1) produced no output (${art})"; exit 1; }
           # Stamp the workload/target into the passthrough of the pipeline artifact.
           saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
-          hdf validate "${art}" --type results || hdf validate "${art}"
-          hdf list "${art}"
-          echo "hdf fetch + normalize (--to hdf@1) -> ${art}"
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); n=sum(len(p.get('controls',[])) for p in d.get('profiles',[])); print(f'normalized {sys.argv[1]}: {n} controls') if (d.get('profiles') and n>0) else (print('::error::normalized HDF has no profiles[].controls[] — empty Config results / lossy downgrade?') or sys.exit(1))" "${art}"
 
       - name: saf aws_config2hdf (cross-check)
         shell: bash
@@ -118,7 +123,9 @@ jobs:
           saf convert aws_config2hdf -r "${REGION}" -o "${art}"
           [ -s "${art}" ] || { echo "::error::no SAF HDF produced (${art})."; exit 1; }
           saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
-          hdf validate "${art}" || echo "::warning::SAF output failed hdf validate (schema drift) — review."
+          # SAF emits native legacy profiles[].controls[] HDF — check that shape directly
+          # (hdf validate only recognizes the new hdf-cli schema, not this legacy form).
+          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); n=sum(len(p.get('controls',[])) for p in d.get('profiles',[])); print(f'saf {sys.argv[1]}: {n} controls') if (d.get('profiles') and n>0) else (print('::error::SAF HDF has no profiles[].controls[]') or sys.exit(1))" "${art}"
           echo "saf -> ${art}"
 
       # The uploaded artifact IS "our output": the caller (sparc-validate) collects it
