@@ -42,7 +42,22 @@ jobs:
     name: AWS Config -> HDF
     runs-on: ubuntu-latest
     container:
-      image: risksentinel/sparc-auditor:v0.1.5
+      # v0.1.5 shipped hdf CLI 3.2.0, under which this workflow produced HDF
+      # carrying NO tags.nist at all — every AWS Config finding reached the
+      # POA&M with no control attribution (#5). v0.5.0 ships 3.4.1, which has
+      # been shown to produce them end to end.
+      #
+      # WHERE the tags were lost is not settled. #5 attributed it to the
+      # `--to hdf@1` downgrade, but that step preserves tags under BOTH 3.2.0
+      # and 3.4.1 when the input carries them (see the note on #5). The
+      # remaining suspect is `hdf fetch aws-config` itself under 3.2.0, which
+      # was never tested at that version. The bump fixes the observed symptom
+      # either way; the mechanism is recorded as open rather than asserted.
+      #
+      # Pinned by mutable tag, which is not the org convention (consumers pin by
+      # @sha256: and verify the cosign signature). Moving to a digest pin is
+      # tracked separately rather than bundled into an evidence fix.
+      image: risksentinel/sparc-auditor:v0.5.0
       credentials:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -111,7 +126,42 @@ jobs:
           [ -s "${art}" ] || { echo "::error::normalize (--to hdf@1) produced no output (${art})"; exit 1; }
           # Stamp the workload/target into the passthrough of the pipeline artifact.
           saf supplement passthrough write -i "${art}" -f "passthrough-${REGION}.json"
-          python3 -c "import json,sys; d=json.load(open(sys.argv[1])); n=sum(len(p.get('controls',[])) for p in d.get('profiles',[])); print(f'normalized {sys.argv[1]}: {n} controls') if (d.get('profiles') and n>0) else (print('::error::normalized HDF has no profiles[].controls[] — empty Config results / lossy downgrade?') or sys.exit(1))" "${art}"
+          # Assert the pipeline SHAPE and the control ATTRIBUTION.
+          #
+          # The previous check counted controls and failed only on zero. It
+          # therefore passed happily on a file carrying 78 controls and not one
+          # NIST tag (#5) — it ran, reported green, and verified nothing about
+          # the thing that was actually broken. Attribution is the reason this
+          # evidence exists: a finding that reaches the POA&M with no control ID
+          # cannot be mapped to anything, so an untagged file is not partially
+          # useful, it is unusable.
+          python3 - "${art}" <<'PY'
+          import json, sys
+
+          path = sys.argv[1]
+          doc = json.load(open(path))
+          profiles = doc.get("profiles") or []
+          controls = [c for p in profiles for c in (p.get("controls") or [])]
+          tagged = [c for c in controls if (c.get("tags") or {}).get("nist")]
+          distinct = {t for c in tagged for t in (c["tags"]["nist"] or [])}
+
+          print(f"normalized {path}: {len(controls)} controls, "
+                f"{len(tagged)} NIST-tagged, {len(distinct)} distinct tags")
+
+          if not controls:
+              print("::error::normalized HDF has no profiles[].controls[] — "
+                    "empty Config results / lossy downgrade?")
+              sys.exit(1)
+
+          if not tagged:
+              print("::error::normalized HDF carries no tags.nist — control "
+                    "attribution is missing, so findings would reach the POA&M "
+                    "unmapped (see #5). Check the sparc-auditor image pin "
+                    "first: this was last caused by a stale pin. Note the tags "
+                    "may be lost at `hdf fetch` rather than at the downgrade, "
+                    "so inspect the .raw.json too.")
+              sys.exit(1)
+          PY
 
       - name: saf aws_config2hdf (cross-check)
         shell: bash
