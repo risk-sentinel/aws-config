@@ -1,0 +1,50 @@
+name: CodeQL
+
+# Static analysis of the GitHub Actions workflows (aws-config#6).
+#
+# Why `actions` and not a programming language: this repository contains no
+# application code. Its only executable content is `fetch-aws-config.yml`, a
+# REUSABLE workflow that callers invoke with `uses:`. Because it is reusable,
+# the OIDC token is minted as the CALLER — so this file executes holding another
+# repository's AWS credentials. That makes it a supply-chain surface, and the
+# `actions` query pack is what analyses it.
+#
+# This is the first use of `languages: actions` in the organisation; every other
+# CodeQL job here analyses a programming language. Worth copying to the other
+# repositories that own reusable workflows, rather than treating it as specific
+# to this one.
+#
+# Results upload to code scanning. This repository is PUBLIC, where code
+# scanning is free — no Code Security licence is involved, and the endpoint is
+# already reachable.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Offset from the secret scan so a bad day does not go entirely quiet at once.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # upload SARIF to code scanning
+
+jobs:
+  analyze:
+    name: Analyze (actions)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          languages: actions
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          category: /language:actions
