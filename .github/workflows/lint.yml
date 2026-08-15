@@ -1,0 +1,91 @@
+name: Lint
+
+# Workflow linting for a repository whose only executable content IS a workflow
+# (aws-config#6).
+#
+# `fetch-aws-config.yml` is a REUSABLE workflow: callers invoke it with `uses:`
+# and it runs under the CALLER's OIDC identity. A defect here does not fail
+# locally and visibly — it fails in somebody else's pipeline, holding somebody
+# else's credentials. That is worth linting even though the repository looks
+# like it contains nothing.
+#
+# Follows risk-sentinel/sparc-dast's pinned + checksum-verified actionlint
+# pattern, with ONE deliberate difference: shellcheck integration is left ON.
+# sparc-dast disables it (`-shellcheck=`) because it lints its own .sh files in
+# a separate step. This repository has no standalone scripts — every line of
+# bash lives inside the workflow's `run:` blocks, including a python heredoc, so
+# actionlint's shellcheck pass is the only thing that reads them at all.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint (workflow + embedded shell)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: actionlint (pinned + checksum-verified)
+        run: |
+          set -euo pipefail
+          ver="1.7.12"
+          base="https://github.com/rhysd/actionlint/releases/download/v${ver}"
+          tar="actionlint_${ver}_linux_amd64.tar.gz"
+          curl -sSfL "${base}/${tar}" -o "${tar}"
+          curl -sSfL "${base}/actionlint_${ver}_checksums.txt" -o checksums.txt
+          grep " ${tar}\$" checksums.txt | sha256sum -c -
+          tar -xzf "${tar}" actionlint
+          # NOTE: the shell linter integration is left ENABLED here (see the
+          # file header) because the embedded bash in fetch-aws-config.yml is
+          # not covered by anything else.
+          #
+          # Careful writing comments in this block: a comment line whose first
+          # word is the linter's own name is parsed as a DIRECTIVE, not prose,
+          # and fails the run with SC1072/SC1073. Two earlier drafts of this
+          # very comment did exactly that.
+          ./actionlint -color
+
+  yaml-parse:
+    name: Workflows parse as YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Parse every workflow
+        run: |
+          set -euo pipefail
+          # A cheap, independent check. actionlint understands Actions schema;
+          # this catches the plainer failure of a file that is not YAML at all,
+          # and does so without depending on the same tool being healthy.
+          python3 - <<'PY'
+          import pathlib, sys
+          import yaml
+
+          failed = []
+          files = sorted(pathlib.Path(".github/workflows").glob("*.y*ml"))
+          if not files:
+              print("::error::no workflow files found — wrong path?")
+              sys.exit(1)
+
+          for path in files:
+              try:
+                  yaml.safe_load(path.read_text())
+                  print(f"ok   {path}")
+              except yaml.YAMLError as exc:
+                  failed.append((path, exc))
+                  print(f"FAIL {path}: {exc}")
+
+          if failed:
+              print(f"::error::{len(failed)} workflow file(s) failed to parse")
+              sys.exit(1)
+          print(f"{len(files)} workflow file(s) parsed")
+          PY

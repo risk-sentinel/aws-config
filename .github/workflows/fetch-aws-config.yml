@@ -84,7 +84,7 @@ jobs:
         run: |
           # Stamped into each HDF's passthrough so the evidence self-identifies the
           # workload + AWS account/region it was collected from.
-          cat > passthrough-${REGION}.json <<JSON
+          cat > "passthrough-${REGION}.json" <<JSON
           {
             "workload": "${WORKLOAD}",
             "source": "aws-config",
