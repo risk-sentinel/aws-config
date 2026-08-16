@@ -1,0 +1,12 @@
+# Review ownership for aws-config.
+#
+# This repository's branch protection ALREADY requires code-owner review, and
+# until now there was no CODEOWNERS file to name any owners — a rule that could
+# never be satisfied by anyone. Found by the DevSecOps baseline's governance
+# sweep (dev-sec-ops-baseline#16), which checks both halves precisely because
+# either alone is hollow: a file nothing enforces is documentation, and an
+# enforcement rule with no file has no owners to ask.
+#
+# Matches the estate convention used by the profile baselines, sparc-iac and
+# container-build-sign.
+* @sm00thindian @clem-field
