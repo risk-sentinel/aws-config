@@ -1,17 +1,17 @@
 # aws-config
 
-Collects **AWS Config** rule-evaluation results as **HDF** (Heimdall Data Format) evidence for the SPARC ATO package.
+Collects **AWS Config** rule-evaluation results as **HDF** (Heimdall Data Format) evidence for an ATO package.
 
-This repo **defines the capture workflow + variables** — but holds **no AWS role and no credentials**. It's a GitHub **reusable workflow** (`workflow_call`); the consumer (**`sparc-validate`**) calls it and supplies its **scanner-role** credentials. Definition lives here; execution + creds live in the caller — the same "upstream defines, consumer runs with its role" model as the cis-* profile overlays.
+This repo **defines the capture workflow + variables** — but holds **no AWS role and no credentials**. It's a GitHub **reusable workflow** (`workflow_call`); the consuming repository calls it and supplies its own **scanner-role** credentials. Definition lives here; execution + creds live in the caller — the same "upstream defines, consumer runs with its role" model as the cis-* profile overlays.
 
 ## Why no role here
 
-`.github/workflows/fetch-aws-config.yml` is `on: workflow_call`. When `sparc-validate` invokes it, the OIDC token is minted as **`repo:risk-sentinel/sparc-validate:*`** (the caller), so the **existing `sparc-validate-scanner` role trust matches** — no new role, no aws-config trust, no aws-config credentials. The scanner role already has (or just needs the `enable_aws_config_evidence_for_sparc_validate` flag flipped for) AWS Config read.
+`.github/workflows/fetch-aws-config.yml` is `on: workflow_call`. When the caller invokes it, the OIDC token is minted as **`repo:<your-org>/<caller-repo>:*`** (the caller), so the caller's **existing scanner-role trust matches** — no new role, no trust entry for this repo, no credentials here. The scanner role needs AWS Config read permission.
 
 ## How the caller uses it
 
 ```yaml
-# in sparc-validate/.github/workflows/validate.yml
+# in <caller-repo>/.github/workflows/validate.yml
 jobs:
   aws-config:
     uses: risk-sentinel/aws-config/.github/workflows/fetch-aws-config.yml@v0.1.0
@@ -34,9 +34,9 @@ jobs:
 
 ## Output
 
-Per-region artifact **`aws-config-<account>-<region>.hdf.json`** — the hdf-cli fetch output **normalized to the legacy `profiles[].controls[]` HDF schema** via `hdf convert --to hdf@1`, so it drops straight into the existing `failure_export` / `hdf_to_oscal.py` pipeline with **no custom shape-handling** (sparc-validate#194). Plus the SAF cross-check `.saf.hdf.json` (already that schema). The richer hdf-cli `baselines[]/requirements[]` form is kept locally as `.raw.json` (not uploaded) pending the fully-native-OSCAL migration (sparc-validate#198).
+Per-region artifact **`aws-config-<account>-<region>.hdf.json`** — the hdf-cli fetch output **normalized to the legacy `profiles[].controls[]` HDF schema** via `hdf convert --to hdf@1`, so it drops straight into the existing `failure_export` / `hdf_to_oscal.py` pipeline with **no custom shape-handling**. Plus the SAF cross-check `.saf.hdf.json` (already that schema). The richer hdf-cli `baselines[]/requirements[]` form is kept locally as `.raw.json` (not uploaded) pending the fully-native-OSCAL migration.
 
-The **artifact is the output**: the caller's `aggregate-failures` step collects it and feeds the **sparc-iac OSCAL/ATO pipeline** (which already ingests sparc-validate artifacts). No S3 upload here (the scanner image has no `aws` CLI).
+The **artifact is the output**: the caller's `aggregate-failures` step collects it and feeds the **downstream OSCAL/ATO pipeline** (which already ingests artifacts of this shape). No S3 upload here (the scanner image has no `aws` CLI).
 
 ## Variables (`workflow_call` inputs)
 
@@ -50,8 +50,8 @@ The **artifact is the output**: the caller's `aggregate-failures` step collects 
 
 | Need | Where | Status |
 |---|---|---|
-| **AWS Config enabled + recording** (NIST 800-53 r5 conformance pack) | sparc-iac `AWS/config/` | **live in prod** (`enable_aws_config`, `enable_conformance_pack`) |
-| **Scanner-role AWS Config read** | sparc-iac `enable_aws_config_evidence_for_sparc_validate` | **flip to `true`** (policy already written; default off) |
+| **AWS Config enabled + recording** (NIST 800-53 r5 conformance pack) | your IaC repo, e.g. `AWS/config/` | enable the recorder + conformance pack |
+| **Scanner-role AWS Config read** | your IaC repo | grant AWS Config read to the scanner role |
 | **`DOCKERHUB_*`** (authenticated image pulls) | org secrets | present |
 | **`hdf` + `saf` CLIs** | `sparc-auditor` v0.1.5 | present (hdf 3.2.0) |
 

@@ -4,10 +4,10 @@ name: fetch-aws-config
 # evidence and stamps the workload/target into the HDF passthrough.
 #
 # This repo holds the workflow + variables but NO AWS role / credentials of its own.
-# The CALLER (sparc-validate) invokes it via `uses:` and passes its scanner-role ARN +
-# the org DOCKERHUB secrets. Because it's a reusable workflow, the OIDC token is minted
-# as the caller (repo:risk-sentinel/sparc-validate:*), so the existing scanner-role trust
-# matches — no new role, no aws-config trust. See README + sparc-validate#194.
+# The CALLER invokes it via `uses:` and passes its own scanner-role ARN + registry
+# secrets. Because it's a reusable workflow, the OIDC token is minted as the caller
+# (repo:<your-org>/<caller-repo>:*), so the caller's existing scanner-role trust
+# matches — no new role, and no trust entry for this repo. See README.
 
 on:
   workflow_call:
@@ -115,9 +115,9 @@ jobs:
           hdf validate "${raw}" || echo "::warning::hdf validate on the native fetch output reported issues"
           # Normalize the hdf-cli schema (baselines[]/requirements[]) down to the legacy
           # profiles[].controls[] HDF that the downstream failure_export / hdf_to_oscal.py
-          # pipeline already consumes — no custom shape-handling needed (sparc-validate#194).
+          # pipeline already consumes — no custom shape-handling needed.
           # The .raw.json keeps the richer hdf-cli evidence (not uploaded; the .hdf.json is the
-          # pipeline artifact). Going fully hdf-cli-native for OSCAL is the migration (sparc-validate#198).
+          # pipeline artifact). Going fully hdf-cli-native for OSCAL is a later migration.
           #
           # Do NOT `hdf validate` the downgraded output — the hdf CLI validates only its OWN
           # (new) schema and rejects its own --to hdf@1 legacy form ("baselines is required").
@@ -178,9 +178,9 @@ jobs:
           python3 -c "import json,sys; d=json.load(open(sys.argv[1])); n=sum(len(p.get('controls',[])) for p in d.get('profiles',[])); print(f'saf {sys.argv[1]}: {n} controls') if (d.get('profiles') and n>0) else (print('::error::SAF HDF has no profiles[].controls[]') or sys.exit(1))" "${art}"
           echo "saf -> ${art}"
 
-      # The uploaded artifact IS "our output": the caller (sparc-validate) collects it
-      # and its aggregate-failures step feeds the sparc-iac OSCAL/ATO pipeline, which
-      # already ingests sparc-validate artifacts. (S3 archival, if ever wanted, is a
+      # The uploaded artifact IS "our output": the caller collects it and its
+      # aggregate-failures step feeds the downstream OSCAL/ATO pipeline, which
+      # already ingests artifacts of this shape. (S3 archival, if ever wanted, is a
       # separate ubuntu-latest publish job — the scanner image has no aws CLI.)
       - name: Upload HDF artifacts
         uses: actions/upload-artifact@v7
