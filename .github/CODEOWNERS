@@ -7,6 +7,5 @@
 # either alone is hollow: a file nothing enforces is documentation, and an
 # enforcement rule with no file has no owners to ask.
 #
-# Matches the estate convention used by the profile baselines, sparc-iac and
-# container-build-sign.
+# Matches the convention used across these repositories.
 * @sm00thindian @clem-field
