@@ -24,9 +24,13 @@ on:
         type: string
         default: aws-config
       workload_name:
-        description: 'Workload identity stamped into the HDF passthrough'
+        description: >-
+          Workload identity stamped into the HDF passthrough. Required and
+          deliberately undefaulted: it names whose workload the evidence
+          describes, so a default would attribute a caller's results to somebody
+          else's workload.
         type: string
-        default: sparc-aws-config
+        required: true
     secrets:
       AWS_ROLE_ARN:
         description: 'Caller role to assume (e.g. the sparc-validate scanner role) — needs AWS Config read + sts:GetCallerIdentity'
