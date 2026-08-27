@@ -69,5 +69,3 @@ AWS Commercial only (account `752531709667`); GovCloud deferred.
 
 ## References
 
-- Tracking: [aws-config#1](https://github.com/risk-sentinel/aws-config/issues/1) · pin: sparc-validate#195
-- Consumer: [sparc-validate#194](https://github.com/risk-sentinel/sparc-validate/issues/194)
