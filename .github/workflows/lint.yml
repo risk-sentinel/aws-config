@@ -9,10 +9,10 @@ name: Lint
 # else's credentials. That is worth linting even though the repository looks
 # like it contains nothing.
 #
-# Follows risk-sentinel/sparc-dast's pinned + checksum-verified actionlint
-# pattern, with ONE deliberate difference: shellcheck integration is left ON.
-# sparc-dast disables it (`-shellcheck=`) because it lints its own .sh files in
-# a separate step. This repository has no standalone scripts — every line of
+# Follows the pinned + checksum-verified actionlint pattern used across these
+# repositories, with ONE deliberate difference: shellcheck integration is left
+# ON. Repos that lint their own .sh files in a separate step turn it off
+# (`-shellcheck=`). This repository has no standalone scripts — every line of
 # bash lives inside the workflow's `run:` blocks, including a python heredoc, so
 # actionlint's shellcheck pass is the only thing that reads them at all.
 
