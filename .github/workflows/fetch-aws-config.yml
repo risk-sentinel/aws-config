@@ -44,7 +44,7 @@ jobs:
     container:
       # v0.1.5 shipped hdf CLI 3.2.0, under which this workflow produced HDF
       # carrying NO tags.nist at all — every AWS Config finding reached the
-      # POA&M with no control attribution (#5). v0.5.0 ships 3.4.1, which has
+      # POA&M with no control attribution. v0.5.0 ships 3.4.1, which has
       # been shown to produce them end to end.
       #
       # WHERE the tags were lost is not settled. #5 attributed it to the
@@ -130,7 +130,7 @@ jobs:
           #
           # The previous check counted controls and failed only on zero. It
           # therefore passed happily on a file carrying 78 controls and not one
-          # NIST tag (#5) — it ran, reported green, and verified nothing about
+          # NIST tag — it ran, reported green, and verified nothing about
           # the thing that was actually broken. Attribution is the reason this
           # evidence exists: a finding that reaches the POA&M with no control ID
           # cannot be mapped to anything, so an untagged file is not partially
