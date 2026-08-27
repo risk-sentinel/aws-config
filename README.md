@@ -17,12 +17,20 @@ jobs:
     uses: risk-sentinel/aws-config/.github/workflows/fetch-aws-config.yml@v0.1.0
     with:
       regions: '["us-east-1"]'
-      workload_name: sparc-aws-config
+      workload_name: my-workload
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}          # the scanner role
+      # Optional. The auditor image is public and pulls anonymously; these only
+      # raise the shared rate limit, and the login step is skipped without them.
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 ```
+
+`regions` and `workload_name` are required and have no defaults. A wrong region
+does not error - it captures an empty region and reports a clean result - and a
+defaulted workload name would attribute your evidence to somebody else's
+workload. See [docs/ci-templates.md](docs/ci-templates.md) for the full
+contract.
 
 ## What it does (per region)
 

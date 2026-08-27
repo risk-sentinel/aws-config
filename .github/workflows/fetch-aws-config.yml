@@ -13,17 +13,24 @@ on:
   workflow_call:
     inputs:
       regions:
-        description: 'JSON array of AWS regions to capture, e.g. ["us-east-1"]'
+        description: >-
+          JSON array of AWS regions to capture, e.g. ["us-east-1"]. Required and
+          deliberately undefaulted: a wrong region does not error, it captures an
+          empty region and reports a clean result.
         type: string
-        default: '["us-east-1"]'
+        required: true
       output_prefix:
         description: 'Artifact filename prefix'
         type: string
         default: aws-config
       workload_name:
-        description: 'Workload identity stamped into the HDF passthrough'
+        description: >-
+          Workload identity stamped into the HDF passthrough. Required and
+          deliberately undefaulted: it names whose workload the evidence
+          describes, so a default would attribute a caller's results to somebody
+          else's workload.
         type: string
-        default: sparc-aws-config
+        required: true
     secrets:
       AWS_ROLE_ARN:
         description: 'Caller role to assume (e.g. the sparc-validate scanner role) — needs AWS Config read + sts:GetCallerIdentity'
