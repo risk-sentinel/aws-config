@@ -1,6 +1,6 @@
 name: fetch-aws-config
 
-# REUSABLE workflow (aws-config#1). Captures AWS Config rule-evaluation results as HDF
+# REUSABLE workflow. Captures AWS Config rule-evaluation results as HDF
 # evidence and stamps the workload/target into the HDF passthrough.
 #
 # This repo holds the workflow + variables but NO AWS role / credentials of its own.
@@ -54,9 +54,9 @@ jobs:
       # POA&M with no control attribution. v0.5.0 ships 3.4.1, which has
       # been shown to produce them end to end.
       #
-      # WHERE the tags were lost is not settled. #5 attributed it to the
+      # WHERE the tags were lost is not settled. It was attributed to the
       # `--to hdf@1` downgrade, but that step preserves tags under BOTH 3.2.0
-      # and 3.4.1 when the input carries them (see the note on #5). The
+      # and 3.4.1 when the input carries them. The
       # remaining suspect is `hdf fetch aws-config` itself under 3.2.0, which
       # was never tested at that version. The bump fixes the observed symptom
       # either way; the mechanism is recorded as open rather than asserted.

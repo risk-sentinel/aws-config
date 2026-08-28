@@ -1,7 +1,7 @@
 name: Lint
 
 # Workflow linting for a repository whose only executable content IS a workflow
-# (aws-config#6).
+#.
 #
 # `fetch-aws-config.yml` is a REUSABLE workflow: callers invoke it with `uses:`
 # and it runs under the CALLER's OIDC identity. A defect here does not fail
