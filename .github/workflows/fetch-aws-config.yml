@@ -64,7 +64,7 @@ jobs:
       # Pinned by mutable tag, which is not the org convention (consumers pin by
       # @sha256: and verify the cosign signature). Moving to a digest pin is
       # tracked separately rather than bundled into an evidence fix.
-      image: risksentinel/sparc-auditor:v0.5.2
+      image: risksentinel/sparc-auditor:v1.2.1
       credentials:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
